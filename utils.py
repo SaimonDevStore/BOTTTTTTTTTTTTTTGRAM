@@ -28,6 +28,8 @@ def extract_product_id(url: str) -> Optional[str]:
 		r"[?&](?:productId|product_id)=(\d+)",
 		# .../product/1234567890.html (alguns domínios)
 		r"/product/(\d+)\.html",
+		# .../item/1234567890 (sem .html)
+		r"/item/(\d+)(?:[/?#]|$)",
 	]
 	for pattern in patterns:
 		m = re.search(pattern, url)
@@ -61,10 +63,32 @@ def calc_discount_percent(old_price: Optional[float], new_price: Optional[float]
 	return max(0, pct)
 
 
-async def resolve_final_url(original_url: str, timeout_sec: int = 12) -> Optional[str]:
+async def resolve_final_url(original_url: str, timeout_sec: int = 15) -> Optional[str]:
+	headers = {
+		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+		"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+	}
 	try:
-		async with aiohttp.ClientSession() as session:
+		async with aiohttp.ClientSession(headers=headers) as session:
+			# Try HEAD first to follow redirects quickly
+			try:
+				async with session.head(original_url, allow_redirects=True, timeout=timeout_sec) as resp:
+					return str(resp.url)
+			except Exception:
+				pass
+			# Fallback to GET
 			async with session.get(original_url, allow_redirects=True, timeout=timeout_sec) as resp:
 				return str(resp.url)
 	except Exception:
 		return None
+
+
+def extract_first_url(text: str) -> Optional[str]:
+	if not text:
+		return None
+	m = re.search(r"(https?://\S+)", text)
+	if not m:
+		return None
+	url = m.group(1)
+	# Remove pontuações comuns no fim
+	return url.rstrip(").,>\n\r\t ")
