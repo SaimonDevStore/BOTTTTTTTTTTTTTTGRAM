@@ -1,12 +1,16 @@
 import re
 from typing import Optional, Tuple
 
+import aiohttp
+
 
 ALIEXPRESS_HOSTS = (
 	"aliexpress.com",
 	"pt.aliexpress.com",
 	"www.aliexpress.com",
 	"m.aliexpress.com",
+	"g.aliexpress.com",
+	"s.click.aliexpress.com",
 )
 
 
@@ -22,6 +26,8 @@ def extract_product_id(url: str) -> Optional[str]:
 		r"/i/(\d+)\.html",
 		# productId=1234567890
 		r"[?&](?:productId|product_id)=(\d+)",
+		# .../product/1234567890.html (alguns domínios)
+		r"/product/(\d+)\.html",
 	]
 	for pattern in patterns:
 		m = re.search(pattern, url)
@@ -53,3 +59,12 @@ def calc_discount_percent(old_price: Optional[float], new_price: Optional[float]
 		return None
 	pct = round((1 - (new_price / old_price)) * 100)
 	return max(0, pct)
+
+
+async def resolve_final_url(original_url: str, timeout_sec: int = 12) -> Optional[str]:
+	try:
+		async with aiohttp.ClientSession() as session:
+			async with session.get(original_url, allow_redirects=True, timeout=timeout_sec) as resp:
+				return str(resp.url)
+	except Exception:
+		return None
