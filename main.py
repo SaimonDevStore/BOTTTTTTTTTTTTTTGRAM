@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from aliexpress_client import AliExpressClient
-from utils import extract_product_id, has_affiliate_params, format_currency_brl, calc_discount_percent, resolve_final_url
+from utils import extract_product_id, has_affiliate_params, format_currency_brl, calc_discount_percent, resolve_final_url, extract_first_url
 
 
 load_dotenv()
@@ -95,19 +95,19 @@ async def handle_link(message: Message) -> None:
 		await message.answer("Acesso negado. Configure ALLOWED_USER_ID para usar o bot.")
 		return
 
-	text_msg = (message.text or "").strip()
-	if not text_msg.lower().startswith("http"):
+	incoming_text = (message.text or "").strip()
+	url_in_text = extract_first_url(incoming_text)
+	if not url_in_text:
 		return
 
-	product_id = extract_product_id(text_msg)
+	product_id = extract_product_id(url_in_text)
 	if not product_id:
-		# tentar resolver redirecionamentos (links encurtados de afiliado)
-		resolved = await resolve_final_url(text_msg)
+		resolved = await resolve_final_url(url_in_text)
 		if resolved:
 			product_id = extract_product_id(resolved)
 
 	if not product_id:
-		print("[BOT] product_id não encontrado após resolver URL", text_msg)
+		print("[BOT] product_id não encontrado", incoming_text)
 		await message.answer("Não consegui encontrar esse produto. Verifique o link e tente novamente.")
 		return
 
@@ -165,10 +165,10 @@ async def handle_link(message: Message) -> None:
 				shipping = f"{shipping} ({rule})"
 
 		# Affiliate link
-		affiliate_link = text_msg if has_affiliate_params(text_msg) else None
+		affiliate_link = url_in_text if has_affiliate_params(url_in_text) else None
 		if not affiliate_link:
-			generated = await alx_client.generate_affiliate_link(text_msg)
-			affiliate_link = generated or text_msg
+			generated = await alx_client.generate_affiliate_link(url_in_text)
+			affiliate_link = generated or url_in_text
 
 		price_old_text = format_currency_brl(old_price_num) if old_price_num else "-"
 		price_new_text = format_currency_brl(current_price_num) if current_price_num else "-"
