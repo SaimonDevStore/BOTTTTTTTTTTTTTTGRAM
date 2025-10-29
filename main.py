@@ -212,6 +212,16 @@ async def telegram_webhook(token: str, request: Request) -> Response:
 	return JSONResponse(status_code=200, content={"ok": True})
 
 
+# Fallback para casos em que WEBHOOK_URL foi configurado sem "/webhook"
+@app.post("/{token}")
+async def telegram_webhook_fallback(token: str, request: Request) -> Response:
+	if token != bot.token:
+		return JSONResponse(status_code=401, content={"ok": False})
+	update = await request.json()
+	await dp.feed_webhook_update(bot, update)
+	return JSONResponse(status_code=200, content={"ok": True})
+
+
 @app.get("/")
 async def healthcheck() -> dict:
 	return {"ok": True}
