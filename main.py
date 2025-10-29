@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from aliexpress_client import AliExpressClient
-from utils import extract_product_id, has_affiliate_params, format_currency_brl, calc_discount_percent
+from utils import extract_product_id, has_affiliate_params, format_currency_brl, calc_discount_percent, resolve_final_url
 
 
 load_dotenv()
@@ -95,18 +95,26 @@ async def handle_link(message: Message) -> None:
 		await message.answer("Acesso negado. Configure ALLOWED_USER_ID para usar o bot.")
 		return
 
-	text = (message.text or "").strip()
-	if not text.lower().startswith("http"):
+	text_msg = (message.text or "").strip()
+	if not text_msg.lower().startswith("http"):
 		return
 
-	product_id = extract_product_id(text)
+	product_id = extract_product_id(text_msg)
 	if not product_id:
+		# tentar resolver redirecionamentos (links encurtados de afiliado)
+		resolved = await resolve_final_url(text_msg)
+		if resolved:
+			product_id = extract_product_id(resolved)
+
+	if not product_id:
+		print("[BOT] product_id não encontrado após resolver URL", text_msg)
 		await message.answer("Não consegui encontrar esse produto. Verifique o link e tente novamente.")
 		return
 
 	try:
 		product = await alx_client.get_product_detail(product_id)
 		if not product:
+			print(f"[BOT] Detalhes não encontrados para product_id={product_id}")
 			await message.answer("Não consegui encontrar esse produto. Verifique o link e tente novamente.")
 			return
 
@@ -117,8 +125,16 @@ async def handle_link(message: Message) -> None:
 		current_price = None
 		old_price = None
 		if isinstance(prices, dict):
-			current_price = prices.get("sale_price", {}).get("value") or prices.get("sale_price_formatted")
-			old_price = prices.get("original_price", {}).get("value") or prices.get("original_price_formatted")
+			current_price = (
+				prices.get("sale_price", {}).get("value")
+				or prices.get("sale_price")
+				or prices.get("sale_price_formatted")
+			)
+			old_price = (
+				prices.get("original_price", {}).get("value")
+				or prices.get("original_price")
+				or prices.get("original_price_formatted")
+			)
 
 		# Fallback alternative keys
 		if current_price is None:
@@ -149,10 +165,10 @@ async def handle_link(message: Message) -> None:
 				shipping = f"{shipping} ({rule})"
 
 		# Affiliate link
-		affiliate_link = text if has_affiliate_params(text) else None
+		affiliate_link = text_msg if has_affiliate_params(text_msg) else None
 		if not affiliate_link:
-			generated = await alx_client.generate_affiliate_link(text)
-			affiliate_link = generated or text
+			generated = await alx_client.generate_affiliate_link(text_msg)
+			affiliate_link = generated or text_msg
 
 		price_old_text = format_currency_brl(old_price_num) if old_price_num else "-"
 		price_new_text = format_currency_brl(current_price_num) if current_price_num else "-"
@@ -189,6 +205,7 @@ async def handle_link(message: Message) -> None:
 			await message.answer(f"📷 Imagem:\n{image_url}")
 
 	except Exception as e:
+		print(f"[BOT] Erro ao processar product_id={product_id}: {e}")
 		await message.answer("Não consegui encontrar esse produto. Verifique o link e tente novamente.")
 
 
